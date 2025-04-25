@@ -1,33 +1,46 @@
-# fetch/rss_scraper.py
-
 import feedparser
-import json
-from datetime import datetime
+from pathlib import Path
+import re
+from newspaper import Article
 
-# Add your preferred RSS feed URLs here
-RSS_FEEDS = [
-    "https://www.aljazeera.com/xml/rss/all.xml",
-    "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
+rss_feeds = [
+    "https://rss.cnn.com/rss/edition.rss",
+    "http://feeds.bbci.co.uk/news/rss.xml"
 ]
 
-def fetch_articles():
-    articles = []
-    for feed_url in RSS_FEEDS:
-        feed = feedparser.parse(feed_url)
-        for entry in feed.entries:
-            article = {
-                "title": entry.title,
-                "link": entry.link,
-                "published": entry.published if "published" in entry else str(datetime.now())
-            }
-            articles.append(article)
+output_dir = Path("articles")
+output_dir.mkdir(exist_ok=True)
 
-    # Save the articles to a file
-    with open("article_list.json", "w", encoding="utf-8") as f:
-        json.dump(articles, f, indent=2, ensure_ascii=False)
+def clean_filename(title):
+    return re.sub(r'[\\/*?:"<>|]', "", title)
 
-    print(f"Fetched {len(articles)} articles.")
-    return articles
+for feed_url in rss_feeds:
+    feed = feedparser.parse(feed_url)
 
-if __name__ == "__main__":
-    fetch_articles()
+    for entry in feed.entries:
+        title = entry.get("title", "untitled")
+        link = entry.get("link", None)
+        published = entry.get("published", "No date")
+
+        if not link:
+            continue
+
+        # Use newspaper3k to fetch and parse the full article
+        try:
+            article = Article(link)
+            article.download()
+            article.parse()
+            full_text = article.text.strip()
+        except Exception as e:
+            print(f"❌ Failed to extract article: {link}\nReason: {e}")
+            continue
+
+        safe_title = clean_filename(title)
+        file_path = output_dir / f"{safe_title}.txt"
+
+        text = f"{title}\n\nPublished: {published}\nLink: {link}\n\n{full_text}"
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+print("✅ Full articles saved as .txt files in the 'articles/' folder.")
